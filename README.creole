@@ -1,0 +1,24 @@
+= PL/SQL Parser
+My language of choice is Python, but our shop is 90% Oracle PL/SQL.
+The codebase is huge, scattered across stored procedures (80%),
+SQL scripts (10%), Oracle Forms (9%) and triggers (1%).
+
+== Goals
+My goals are (in order of possibility):
+ # generate nice dependency/call graphs with GraphViz - for this
+   I need the function names and boundaries in the source code.
+ # auto-format source to our coding style -
+   I think this is a faraway target for me...
+
+== The Problem
+I could create a stream reader which treats comments (block and line) as needed,
+and counts with string literals (''), but function boundaries are hard with my
+simple path with regexes or simple hand-crafted state machines.
+
+== A possible solution
+I've found then ANTLR3 project, with its nice AntlrWorks 1.4 IDE and
+a community-provided PLSQL3.g grammar file - it could produce a more-or-less
+syntactically correct Python parser, which is provided here.
+
+I'll try to use it to find function names and boundaries
+(esp. recursive declarations seems problematic).
