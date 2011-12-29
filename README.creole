@@ -22,3 +22,6 @@ syntactically correct Python parser, which is provided here.
 
 I'll try to use it to find function names and boundaries
 (esp. recursive declarations seems problematic).
+
+
+First test shows this is a dead-end (for Python backend): parsing the 7Mb source is terminated after 4m28s and consumed 3Gb memory.
