@@ -92,7 +92,7 @@ def get_page(url, cache_nexists=True):
 
 
 class PageCache(object):
-    def __init__(self, db_name='cache.sqlite', compress_threshold=1024):
+    def __init__(self, db_name='/tmp/cache.sqlite', compress_threshold=1024):
         self.compress_threshold = compress_threshold
         import sqlite3
         conn = sqlite3.connect(db_name)

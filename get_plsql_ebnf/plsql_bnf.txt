@@ -1,0 +1,388 @@
+create_package = 
+CREATE [ OR REPLACE ] PACKAGE [ schema. ] package_name
+   [ invoker_rights_clause ]
+   { IS | AS } declare_section END [ package_name ]  EOS;
+invoker_rights_clause = 
+AUTHID { CURRENT_USER | DEFINER };
+create_package_body = 
+CREATE [ OR REPLACE ] PACKAGE BODY [ schema. ] package_name
+{ IS | AS } declare_section [ initialize_section ]
+END [ package_name ]  EOS;
+initialize_section = 
+BEGIN statement [ statement | pragma ]...
+  [ EXCEPTION exception_handler [ exception_handler ]... ];
+exception_handler = 
+WHEN { exception [ OR exception ]... | OTHERS }
+  THEN statement [ statement ]...;
+plsql_block = 
+[ "<<" label ">>" ]... [ DECLARE declare_section ] body;
+declare_section = 
+{ item_list_1 [ item_list_2 ] | item_list_2 };
+item_list_1 = 
+{ type_definition
+| cursor_declaration
+| item_declaration
+| function_declaration
+| procedure_declaration
+}
+  [ { type_definition
+    | cursor_declaration
+    | item_declaration
+    | function_declaration
+    | procedure_declaration
+    | pragma
+    }
+  ]...;
+item_list_2 = 
+{ cursor_declaration
+| cursor_definition
+| function_declaration
+| function_definition
+| procedure_declaration
+| procedure_definition
+}
+  [ { cursor_declaration
+    | cursor_definition
+    | function_declaration
+    | function_definition
+    | procedure_declaration
+    | procedure_definition
+    | pragma
+    }
+  ]...;
+type_definition = 
+{ collection_type_definition
+| record_type_definition
+| ref_cursor_type_definition
+| subtype_definition
+};
+subtype_definition = 
+SUBTYPE subtype IS base_type [ constraint | CHARACTER SET character_set ]
+  [ NOT NULL ];
+constraint = 
+{ precision [, scale ] | RANGE low_value .. high_value };
+item_declaration = 
+{ collection_variable_dec
+| constant_declaration
+| cursor_variable_declaration
+| exception_declaration
+| record_variable_declaration
+| variable_declaration
+};
+pragma = 
+{ autonomous_transaction_pragma
+| exception_init_pragma
+| inline_pragma
+| restrict_references_pragma
+| serially_reusable_pragma
+};
+basic_body = 
+BEGIN statement [ statement | inline_pragma ]...
+  [ EXCEPTION exception_handler [ exception_handler ]... ] END [ name ]  EOS;
+statement = 
+[ "<<" label ">>" [ "<<" label ">>" ] ...]
+  { assignment_statement
+  | basic_loop_statement
+  | close_statement
+  | continue_statement
+  | cursor_for_loop_statement
+  | execute_immediate_statement
+  | exit_statement
+  | fetch_statement
+  | for_loop_statement
+  | forall_statement
+  | goto_statement
+  | if_statement
+  | null_statement
+  | open_statement
+  | open_for_statement
+  | pipe_row_statement
+  | plsql_block
+  | raise_statement
+  | return_statement
+  | select_into_statement
+  | sql_statement
+  | while_loop_statement
+  };
+procedure_call = 
+procedure [ ( [ parameter [, parameter ]... ] ) ]  EOS;
+sql_statement = 
+{ commit_statement
+| delete_statement
+| insert_statement
+| lock_table_statement
+| rollback_statement
+| savepoint_statement
+| set_transaction_statement
+| update_statement
+};
+procedure_declaration = 
+procedure_heading;
+procedure_heading = 
+PROCEDURE procedure [ ( parameter_declaration [, parameter_declaration ]... ) ];
+procedure_definition = 
+procedure_heading { IS | AS }
+  { [ declare_section ] body | call_spec | EXTERNAL };
+inline_pragma = 
+PRAGMA INLINE ( subprogram , { 'YES' | 'NO' } )  EOS;
+cursor_for_loop_statement = 
+[ FOR record IN
+  { cursor [ ( cursor_parameter_declaration
+               [ [,] cursor_parameter_declaration ]... )]
+  | ( select_statement )
+  }
+    LOOP statement... END LOOP [label]  EOS;
+for_loop_statement = 
+[ FOR index IN [ REVERSE ] lower_bound .. upper_bound
+    LOOP statement... END LOOP [ label ]  EOS;
+forall_statement = 
+FORALL index IN bounds_clause [ SAVE EXCEPTIONS ] dml_statement EOS;
+bounds_clause = 
+{ lower_bound .. upper_bound
+| INDICES OF collection [ BETWEEN lower_bound AND upper_bound ]
+| VALUES OF index_collection
+};
+insert_into_clause = 
+INTO dml_expression_clause [ t_alias ];
+values_clause = 
+VALUES record;
+fetch_statement = 
+FETCH { cursor | cursor_variable | :host_cursor_variable }
+  { into_clause | bulk_collect_into_clause [ LIMIT numeric_expression ] }  EOS;
+basic_loop_statement = 
+LOOP statement... END LOOP [ label ]  EOS;
+collection_type_def = 
+TYPE type IS 
+   { assoc_array_type_def
+   | varray_type_def
+   | nested_table_type_def
+   }  EOS;
+assoc_array_type_def = 
+TABLE OF datatype [ NOT NULL ]
+INDEX BY { PLS_INTEGER | BINARY_INTEGER | VARCHAR2 ( v_size ) | data_type };
+varray_type_def = 
+{ VARRAY | VARYING ARRAY } ( size_limit )
+  OF datatype [ NOT NULL ];
+nested_table_type_def = 
+TABLE OF datatype [ NOT NULL ];
+datatype = 
+ { collection_type
+ | [ REF ] object_type
+ | record_type
+ | ref_cursor_type
+ | rowtype_attribute
+ | scalar_datatype
+ | type_attribute
+ };
+collection_variable_dec = 
+new_collection_var
+   { assoc_array_type
+   | { varray_type | nested_table_type } 
+       [ :=  { collection_constructor | collection_var_1 } 
+   | collection_var_2%TYPE
+   }  EOS;
+null_statement = 
+NULL  EOS;
+if_statement = 
+IF boolean_expression THEN statement [ statement ]...
+ [ ELSIF boolean_expression THEN statement [ statement ]... ]...
+   [ ELSE statement [ statement ]... ] END IF  EOS;
+pipe_row_statement = 
+PIPE ROW ( row )  EOS;
+return_statement = 
+RETURN [ expression ]  EOS;
+while_loop_statement = 
+WHILE boolean_expression
+  LOOP statement... END LOOP [ label ]  EOS;
+raise_statement = 
+RAISE [ exception ]  EOS;
+ref_cursor_type_definition = 
+TYPE type IS REF CURSOR
+  [ RETURN
+    { {db_table_or_view | cursor | cursor_variable}%ROWTYPE
+    | record%TYPE
+    | record_type
+    | ref_cursor_type
+    }
+  ]  EOS;
+cursor_variable_declaration = 
+cursor_variable type EOS;
+exception_declaration = 
+exception EXCEPTION EOS;
+open_statement = 
+OPEN cursor [ ( cursor_parameter [ [,] actual_cursor_parameter ]... ) ]  EOS;
+parameter_declaration = 
+parameter [ [ IN ] datatype [ { := | DEFAULT } expression ]
+          | { OUT | IN OUT } [ NOCOPY ] datatype;
+assignment_statement = 
+assignment_statement_target := expression  EOS;
+assignment_statement_target = 
+{ collection_variable [ ( index ) ]
+| cursor_variable
+| :host_cursor_variable
+| object[.attribute]
+| out_parameter
+| placeholder
+| record_variable[.field]
+| scalar_variable
+};
+placeholder_expression = 
+:host_variable[:indicator_variable];
+close_statement = 
+CLOSE { cursor | cursor_variable | :host_cursor_variable }  EOS;
+variable_declaration = 
+variable datatype [ [ NOT NULL] {:= | DEFAULT} expression ]  EOS;
+expression = 
+ { boolean_expression
+   | character_expression
+   | collection_constructor
+   | date_expression
+   | numeric_expression
+   | searched_case_expression
+   | simple_case_expression
+   | ( expression )
+   };
+boolean_expression = 
+[ NOT ] { boolean_constant
+        | boolean_function_call
+        | boolean_literal
+        | boolean_variable
+        | conditional_predicate
+        | other_boolean_form
+        }
+        [ { AND | OR } [ NOT ] { boolean_constant
+                               | boolean_function_call
+                               | boolean_literal
+                               | boolean_variable
+                               | conditional_predicate
+                               | other_boolean_form
+                               }
+        ]...;
+boolean_literal = 
+ { TRUE | FALSE | NULL };
+conditional_predicate = 
+ { INSERTING | UPDATING [ ( 'column' ) ] | DELETING };
+other_boolean_form = 
+{ collection.EXISTS ( index )
+| expression { IS [ NOT ] NULL
+             | [ NOT ] { BETWEEN expression AND expression
+                       | IN ( expression [, expression ]... )
+                       | LIKE pattern
+                       }
+             | relational_operator expression
+             }
+| { named_cursor | SQL } % { FOUND | ISOPEN | NOTFOUND }
+};
+character_expression = 
+ { character_constant
+   | character_function_call
+   | character_literal
+   | character_variable
+   | placeholder]
+ }
+ [|| { character_constant
+       | character_function_call
+       | character_literal
+       | character_variable
+       | placeholder]
+      } 
+ [|| { character_constant
+       | character_function_call
+       | character_literal
+       | character_variable
+       | placeholder]
+     } ]...;
+collection_constructor = 
+collection_type ( [ value [, value]... ]);
+date_expression = 
+{ date_constant
+| date_function_call
+| date_literal
+| date_variable
+| placeholder]
+}
+  [ { + | - } numeric_expression ] [ { + | - } numeric_expression ] ]...;
+numeric_expression = 
+ numeric_subexpression
+ [ { + | - | * | / } numeric_subexpression ]...;
+numeric_subexpression = 
+ { collection . { COUNT
+                | FIRST
+                | LAST
+                | LIMIT
+                | { NEXT | PRIOR } ( index )
+                }
+ | named_cursor%ROWCOUNT
+ | numeric_constant
+ | numeric_function_call
+ | numeric_literal
+ | numeric_variable
+ | placeholder
+ | SQL%{ROWCOUNT | BULK_ROWCOUNT ( index )}
+ }
+ [ ** exponent ];
+function_call = 
+function [ ( [ parameter [, parameter ]... ] ) ];
+searched_case_expression = 
+CASE
+  WHEN boolean_expression THEN result_value
+[ WHEN boolean_expression THEN result_value]... 
+[ ELSE result_value]
+END;
+simple_case_expression = 
+CASE case_operand
+  WHEN case_operand_value THEN result_value
+[ WHEN case_operand_value THEN result_value]... 
+[ ELSE result_value]
+END;
+function_declaration = 
+function_heading
+  [ DETERMINISTIC | PIPELINED | PARALLEL_ENABLE | RESULT_CACHE ]...  EOS;
+function_heading = 
+FUNCTION function [ ( parameter_declaration [, parameter_declaration ] ) ]
+  RETURN datatype;
+function_definition = 
+function_heading [ DETERMINISTIC
+                 | PIPELINED
+                 | PARALLEL_ENABLE
+                 | RESULT_CACHE [ relies_on_clause ]
+                 ]...
+  { IS | AS } { [ declare_section ] body | call_spec | EXTERNAL };
+relies_on_clause = 
+RELIES_ON ( [ data_source [, data_source]... ] );
+update_set_clause = 
+SET ROW record;
+where_clause = 
+WHERE condition CURRENT OF for_update_cursor;
+continue_statement = 
+CONTINUE [ label ] [ WHEN boolean_expression ]  EOS;
+goto_statement = 
+GOTO label  EOS;
+rowtype_attribute = 
+{ explicit_cursor | cursor_variable | db_table_or_view } %ROWTYPE;
+cursor_declaration = 
+CURSOR cursor
+  [( cursor_parameter_declaration [, cursor_parameter_declaration ]... )]
+    RETURN rowtype EOS;
+cursor_definition = 
+CURSOR cursor
+ [ ( cursor_parameter_declaration [, cursor_parameter_declaration ]... )]
+   [ RETURN rowtype] IS select_statement  EOS;
+cursor_parameter_dec = 
+parameter [IN] datatype [ { := | DEFAULT } expression ];
+rowtype = 
+{ {db_table_or_view | cursor | cursor_variable}%ROWTYPE
+  | record%TYPE
+  | record_type
+  };
+type_attribute = 
+{ collection_variable
+| cursor_variable
+| db_table_or_view.column
+| object
+| record_variable[.field ]
+| scalar_variable
+}
+  %TYPE;
+exit_statement = 
+EXIT [ label ] [ WHEN boolean_expression ]  EOS;
