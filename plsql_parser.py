@@ -118,8 +118,13 @@ WITH
 
 from pyparsing import *
 
+
 def KW(text):
     return CaselessKeyword(text)
+
+
+def kw(text):
+    return And(map(KW, text.upper().split()))
 
 EOS = Literal(';')
 name = Word('a-zA-Z_#', 'a-zA-Z0-9_#', max=30)
@@ -182,7 +187,8 @@ numeric_subexpression = (
  [ { + | - | * | / } numeric_subexpression ]...;'''
 numeric_expression = numeric_subexpression + ZeroOrMore((Literal('+') | '-' | '*' | '/') + numeric_subexpression)
 
-character_literal = Combine("'" + ZeroOrMore("''" | CharsNotIn("'")) + "'")
+character_literal = QuotedString("'", escQuote="''", multiline=True)
+# Combine("'" + ZeroOrMore("''" | CharsNotIn("'")) + "'")
 date_constant = constant
 date_function_call = function_call
 date_literal = character_literal
@@ -274,7 +280,7 @@ conditional_predicate = (KW('INSERTING')
 
 '''boolean_literal =
  { TRUE | FALSE | NULL };'''
-boolean_literal = KW('TRUE') | KW('FALSE') + KW('NULL')
+boolean_literal = KW('TRUE') | kw('FALSE NULL')
 
 '''boolean_expression =
 [ NOT ] { boolean_constant
@@ -423,7 +429,7 @@ cursor_parameter_declaration = cursor_parameter_dec + ZeroOrMore(',' + cursor_pa
 cursor_definition_head = (KW('CURSOR') + name
     + Optional('(' + OneOrMore(cursor_parameter_declaration) + ')'))
 
-select_statement = KW('SELECT')  # + SkipTo(EOS + LineEnd)
+select_statement = KW('SELECT') + SkipTo(EOS)  # & LineEnd)
 '''cursor_definition =
 CURSOR cursor
  [ ( cursor_parameter_declaration [, cursor_parameter_declaration ]... )]
@@ -453,13 +459,13 @@ continue_statement = KW('CONTINUE') + Optional(label) + Optional(KW('WHEN') + bo
 '''where_clause =
 WHERE condition CURRENT OF for_update_cursor;
 '''
-condition = SkipTo(KW('CURRENT') + KW('OF'))
+condition = SkipTo(kw('CURRENT OF'))
 for_update_cursor = variable
-where_clause = KW('WHERE') + condition + KW('CURRENT') + KW('OF') + for_update_cursor
+where_clause = KW('WHERE') + condition + kw('CURRENT OF') + for_update_cursor
 
 '''update_set_clause =
 SET ROW record;'''
-update_set_clause = KW('SET') + KW('ROW') + record
+update_set_clause = kw('SET ROW') + record
 
 '''relies_on_clause =
 RELIES_ON ( [ data_source [, data_source]... ] );'''
@@ -469,7 +475,7 @@ relies_on_clause = KW('RELIES_ON') + '(' + Optional(data_source + ZeroOrMore(','
 '''variable_declaration =
 variable datatype [ [ NOT NULL] {:= | DEFAULT} expression ]  EOS;'''
 variable_declaration = (variable + datatype
-    + Optional(Optional(KW('NOT') + KW('NULL'))
+    + Optional(Optional(kw('NOT NULL'))
                + (Literal(':=') | KW('DEFAULT'))
                + expression)
     + EOS)
@@ -513,31 +519,7 @@ parameter_dec = name + Optional(
 
 parameter_declaration = parameter_dec + ZeroOrMore(',' + parameter_dec)
 
-'''function_heading =
-FUNCTION function [ ( parameter_declaration [, parameter_declaration ] ) ]
-  RETURN datatype;'''
-function_heading = KW('FUNCTION') + name + Optional('(' + parameter_declaration + ZeroOrMore(',' + parameter_declaration) + ')') + KW('RETURN') + datatype
-
-'''function_definition =
-function_heading [ DETERMINISTIC
-                 | PIPELINED
-                 | PARALLEL_ENABLE
-                 | RESULT_CACHE [ relies_on_clause ]
-                 ]...
-  { IS | AS } { [ declare_section ] body | call_spec | EXTERNAL };'''
-function_definition = function_heading + ZeroOrMore(
-    KW('DETERMINISTIC')
-  | KW('PIPELINED') | KW('PARALLEL_ENABLE')
-  | (KW('RESULT_CACHE') + Optional(relies_on_clause))) + (KW('IS') | KW('AS')) + ((Optional(declare_section) + body)
-            | call_spec | KW('EXTERNAL'))
-
-'''function_declaration =
-function_heading
-  [ DETERMINISTIC | PIPELINED | PARALLEL_ENABLE | RESULT_CACHE ]...  EOS;'''
-function_declaration = (function_heading + ZeroOrMore(*map(KW,
-    'DETERMINISTIC PIPELINED PARALLEL_ENABLE RESULT_CACHE'.split()))
-    + EOS)
-
+parameter = expression
 
 '''
 function_call =
@@ -553,9 +535,10 @@ exception EXCEPTION EOS;'''
 exception_declaration = name + KW('EXCEPTION') + EOS
 
 '''cursor_variable_declaration =
-cursor_variable type EOS;
+cursor_variable type EOS;'''
+cursor_variable_declaration = cursor_variable + _type + EOS
 
-ref_cursor_type_definition =
+'''ref_cursor_type_definition =
 TYPE type IS REF CURSOR
   [ RETURN
     { {db_table_or_view | cursor | cursor_variable}%ROWTYPE
@@ -563,108 +546,167 @@ TYPE type IS REF CURSOR
     | record_type
     | ref_cursor_type
     }
-  ]  EOS;
+  ]  EOS;'''
+ref_cursor_type_definition = (KW('TYPE') + _type + kw('IS REF CURSOR')
+    + Optional(
+        (KW('RETURN') + ((db_table_or_view | named_cursor | cursor_variable) + '%' + KW('ROWTYPE')))
+        | (record + '%' + KW('TYPE'))
+        | record_type
+        | ref_cursor_type)
+    + EOS)
 
-raise_statement =
-RAISE [ exception ]  EOS;
 
-while_loop_statement =
+statement = Forward()
+
+exception = name
+'''raise_statement =
+RAISE [ exception ]  EOS;'''
+raise_statement = KW('RAISE') + Optional(exception) + EOS
+
+'''while_loop_statement =
 WHILE boolean_expression
-  LOOP statement... END LOOP [ label ]  EOS;
+  LOOP statement... END LOOP [ label ]  EOS;'''
+while_loop_statement = (KW('WHILE') + boolean_expression + KW('LOOP')
+    + OneOrMore(statement) + kw('END LOOP') + Optional(label) + EOS)
 
-return_statement =
-RETURN [ expression ]  EOS;
+'''return_statement =
+RETURN [ expression ]  EOS;'''
+return_statement = KW('RETURN') + Optional(expression) + EOS
 
-pipe_row_statement =
-PIPE ROW ( row )  EOS;
+row = variable
+'''pipe_row_statement =
+PIPE ROW ( row )  EOS;'''
+pipe_row_statement = kw('PIPE ROW') + '(' + row + ')' + EOS
 
-if_statement =
+'''if_statement =
 IF boolean_expression THEN statement [ statement ]...
  [ ELSIF boolean_expression THEN statement [ statement ]... ]...
-   [ ELSE statement [ statement ]... ] END IF  EOS;
+   [ ELSE statement [ statement ]... ] END IF  EOS;'''
+if_statement = (KW('IF') + boolean_expression + KW('THEN') + OneOrMore(statement)
+    + Optional(KW('ELSIF') + boolean_expression + KW('THEN') + OneOrMore(statement))
+    + Optional(KW('ELSE') + OneOrMore(statement))
+    + kw('END IF') + EOS)
 
-null_statement =
-NULL  EOS;
+'''null_statement =
+NULL  EOS;'''
+null_statement = KW('NULL') + EOS
 
-collection_variable_dec =
+'''collection_variable_dec =
 new_collection_var
    { assoc_array_type
    | { varray_type | nested_table_type }
        [ :=  { collection_constructor | collection_var_1 }
    | collection_var_2%TYPE
-   }  EOS;
+   }  EOS;'''
+collection_variable_dec = new_collection_var + (assoc_array_type | ((varray_type | nested_table_type) + Optional(':=' + (collection_constructor | collection_variable))))
 
+'''nested_table_type_def =
+TABLE OF datatype [ NOT NULL ];'''
+nested_table_type_def = kw('TABLE OF') + datatype + Optional(kw('NOT NULL'))
 
-nested_table_type_def =
-TABLE OF datatype [ NOT NULL ];
-
-varray_type_def =
+'''varray_type_def =
 { VARRAY | VARYING ARRAY } ( size_limit )
-  OF datatype [ NOT NULL ];
+  OF datatype [ NOT NULL ];'''
+varray_type_def = ((KW('VARRAY') | (kw('VARYING ARRAY')))
+    + '(' + size_limit + ')' + KW('OF') + datatype
+    + Optional(kw('NOT NULL')))
 
-assoc_array_type_def =
+'''assoc_array_type_def =
 TABLE OF datatype [ NOT NULL ]
-INDEX BY { PLS_INTEGER | BINARY_INTEGER | VARCHAR2 ( v_size ) | data_type };
+INDEX BY { PLS_INTEGER | BINARY_INTEGER | VARCHAR2 ( v_size ) | data_type };'''
+assoc_array_type_def = (kw('TABLE OF') + datatype
+    + Optional(kw('NOT NULL'))
+    + kw('INDEX BY') + (KW('PLS_INTEGER') | KW('BINARY_INTEGER')
+                       | (KW('VARCHAR2') + '(' + size_limit + ')') | _type))
 
-collection_type_def =
+'''collection_type_def =
 TYPE type IS
    { assoc_array_type_def
    | varray_type_def
    | nested_table_type_def
-   }  EOS;
+   }  EOS;'''
+collection_type_def = KW('TYPE') + type_ + KW('IS') + (assoc_array_type_def | varray_type_def | nested_table_type_def) + EOS
 
-basic_loop_statement =
+'''basic_loop_statement =
 LOOP statement... END LOOP [ label ]  EOS;'''
+basic_loop_statement = KW('LOOP') + OneOrMore(statement) + kw('END LOOP') + Optional(label) + EOS
 
 '''fetch_statement =
 FETCH { cursor | cursor_variable | :host_cursor_variable }
-  { into_clause | bulk_collect_into_clause [ LIMIT numeric_expression ] }  EOS;
+  { into_clause | bulk_collect_into_clause [ LIMIT numeric_expression ] }  EOS;'''
+fetch_statement = (KW('FETCH') + (named_cursor | cursor_variable | host_cursor)
+    + (into_clause | (bulk_collect_into_clause
+                      + Optional(KW('LIMIT') + numeric_expression)))
+    + EOS)
 
-values_clause =
-VALUES record;
+'''values_clause =
+VALUES record;'''
+values_clause = KW('VALUES') + record
 
-insert_into_clause =
-INTO dml_expression_clause [ t_alias ];
+'''insert_into_clause =
+INTO dml_expression_clause [ t_alias ];'''
+insert_into_clause = KW('INTO') + dml_expression_clause + Optional(t_alias)
 
-bounds_clause =
+'''bounds_clause =
 { lower_bound .. upper_bound
 | INDICES OF collection [ BETWEEN lower_bound AND upper_bound ]
 | VALUES OF index_collection
-};
+};'''
+bounds_clause = ((lower_bound + '..' + upper_bound)
+    | (kw('INDICES OF') + collection + Optional(KW('BETWEEN') + lower_bound + KW('AND') + upper_bound)
+    | (kw('VALUES OF') + index_collection)))
 
-forall_statement =
-FORALL index IN bounds_clause [ SAVE EXCEPTIONS ] dml_statement EOS;
+'''forall_statement =
+FORALL index IN bounds_clause [ SAVE EXCEPTIONS ] dml_statement EOS;'''
+forall_statement = (KW('FORALL') + index + KW('IN') + bounds_clause
+    + Optional(kw('SAVE EXCEPTIONS')) + dml_statement + EOS)
 
-for_loop_statement =
+'''for_loop_statement =
 [ FOR index IN [ REVERSE ] lower_bound .. upper_bound
-    LOOP statement... END LOOP [ label ]  EOS;
+    LOOP statement... END LOOP [ label ]  EOS;'''
+for_loop_statement = (KW('FOR') + index + KW('IN') + Optional(KW('REVERSE'))
+    + lower_bound + '..' + upper_bound
+    + KW('LOOP') + OneOrMore(statement) + kw('END LOOP') + Optional(label)
+    + EOS)
 
-cursor_for_loop_statement =
+'''cursor_for_loop_statement =
 [ FOR record IN
   { cursor [ ( cursor_parameter_declaration
                [ [,] cursor_parameter_declaration ]... )]
   | ( select_statement )
   }
-    LOOP statement... END LOOP [label]  EOS;
+    LOOP statement... END LOOP [label]  EOS;'''
 
-inline_pragma =
-PRAGMA INLINE ( subprogram , { 'YES' | 'NO' } )  EOS;
+'''inline_pragma =
+PRAGMA INLINE ( subprogram , { 'YES' | 'NO' } )  EOS;'''
+inline_pragma = (kw('pragma inline') + '(' + subprogram + ','
+                 + (kw('yes') | kw('no')) + ')' + EOS)
 
-exception_handler =
+'''exception_handler =
 WHEN { exception [ OR exception ]... | OTHERS }
-  THEN statement [ statement ]...;
+  THEN statement [ statement ]...;'''
+exception_handler = (kw('when')
+  + (kw('others')
+    | (exception + ZeroOrMore(kw('or') + exception))
+  + kw('then') + OneOrMore(statement)))
 
-procedure_definition =
+'''procedure_heading =
+PROCEDURE procedure [ ( parameter_declaration [, parameter_declaration ]... ) ];'''
+procedure_heading = (kw('procedure') + name
+    + Optional('(' + parameter_declaration
+               + ZeroOrMore(',' + parameter_declaration) + ')'))
+
+'''procedure_definition =
 procedure_heading { IS | AS }
-  { [ declare_section ] body | call_spec | EXTERNAL };
+  { [ declare_section ] body | call_spec | EXTERNAL };'''
+procedure_definiton = procedure_heading + isas + (
+  (Optional(declare_section) + body) | call_spec | kw('external'))
 
-procedure_heading =
-PROCEDURE procedure [ ( parameter_declaration [, parameter_declaration ]... ) ];
+'''procedure_declaration =
+procedure_heading;'''
+procedure_declaration = procedure_heading
 
-procedure_declaration =
-procedure_heading;
-
-sql_statement =
+'''sql_statement =
 { commit_statement
 | delete_statement
 | insert_statement
@@ -673,12 +715,23 @@ sql_statement =
 | savepoint_statement
 | set_transaction_statement
 | update_statement
-};
+};'''
+sql_statement = (
+  commit_statement
+| delete_statement
+| insert_statement
+| lock_table_statement
+| rollback_statement
+| savepoint_statement
+| set_transaction_statement
+| update_statement)
 
-procedure_call =
-procedure [ ( [ parameter [, parameter ]... ] ) ]  EOS;
+'''procedure_call =
+procedure [ ( [ parameter [, parameter ]... ] ) ]  EOS;'''
+procedure_call = (name + Optional('('
+    + Optional(parameter + ZeroOrMore(',' + parameter)) + ')') + EOS)
 
-statement =
+'''statement =
 [ "<<" label ">>" [ "<<" label ">>" ] ...]
   { assignment_statement
   | basic_loop_statement
@@ -774,9 +827,36 @@ item_list_1 =
   ]...;
 
 declare_section =
-{ item_list_1 [ item_list_2 ] | item_list_2 };
+{ item_list_1 [ item_list_2 ] | item_list_2 };'''
 
-plsql_block =
+isas = KW('IS') | KW('AS')
+
+'''function_heading =
+FUNCTION function [ ( parameter_declaration [, parameter_declaration ] ) ]
+  RETURN datatype;'''
+function_heading = KW('FUNCTION') + name + Optional('(' + parameter_declaration + ZeroOrMore(',' + parameter_declaration) + ')') + KW('RETURN') + datatype
+
+'''function_definition =
+function_heading [ DETERMINISTIC
+                 | PIPELINED
+                 | PARALLEL_ENABLE
+                 | RESULT_CACHE [ relies_on_clause ]
+                 ]...
+  { IS | AS } { [ declare_section ] body | call_spec | EXTERNAL };'''
+function_definition = function_heading + ZeroOrMore(
+    KW('DETERMINISTIC')
+  | KW('PIPELINED') | KW('PARALLEL_ENABLE')
+  | (KW('RESULT_CACHE') + Optional(relies_on_clause))) + isas + ((Optional(declare_section) + body)
+            | call_spec | KW('EXTERNAL'))
+
+'''function_declaration =
+function_heading
+  [ DETERMINISTIC | PIPELINED | PARALLEL_ENABLE | RESULT_CACHE ]...  EOS;'''
+function_declaration = (function_heading + ZeroOrMore(*map(KW,
+    'DETERMINISTIC PIPELINED PARALLEL_ENABLE RESULT_CACHE'.split()))
+    + EOS)
+
+'''plsql_block =
 [ "<<" label ">>" ]... [ DECLARE declare_section ] body;
 
 initialize_section =
@@ -823,7 +903,7 @@ statement =
   | sql_statement
   | while_loop_statement
   };'''
-statement = ZeroOrMore("<<" + name + ">>") + (
+statement << ZeroOrMore("<<" + name + ">>") + (
     assignment_statement
   | basic_loop_statement
   | close_statement
@@ -933,7 +1013,9 @@ CREATE [ OR REPLACE ] PACKAGE [ schema. ] package_name
    [ invoker_rights_clause ]
    { IS | AS } declare_section END [ package_name ]  EOS;
    '''
-create_package = KW('CREATE') + Optional(KW('OR') + KW('REPLACE')) + KW('PACKAGE') + Optional(name + '.') + name + invoker_rights_clause + (KW('IS') | KW('AS')) + declare_section + KW('END') + EOS
+create_package = (KW('CREATE') + Optional(kw('OR REPLACE'))
+    + KW('PACKAGE') + Optional(name + '.') + name + invoker_rights_clause + isas
+    + declare_section + KW('END') + EOS)
 
 '''
 create_package_body =
@@ -941,3 +1023,7 @@ CREATE [ OR REPLACE ] PACKAGE BODY [ schema. ] package_name
 { IS | AS } declare_section [ initialize_section ]
 END [ package_name ]  EOS;
 '''
+create_package_body = (kw('create') + Optional(kw('or replace'))
+    + kw('package body') + Optional(schema + '.') + name + isas
+    + declare_section + Optional(initialize_section)
+    + kw('end') + name + EOS)
