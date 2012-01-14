@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 
 from pyparsing import *
+import logging
+LOG = logging.getLogger(__name__)
+
+# ParserElement.enablePackrat()  # eats too much memory
 
 
 def KW(text):
@@ -9,7 +13,11 @@ def KW(text):
 
 
 def kw(text):
-    return And(map(KW, text.upper().split()))
+    try:
+        return And(map(KW, text.upper().split()))
+    except AttributeError:
+        LOG.exception('kw(%r)', text)
+        raise
 
 
 def sepmul(tok, sep=','):
@@ -98,8 +106,8 @@ date_expression = (date_constant | date_function_call
 _type = name
 collection_type = _type
 value = expression
-comma_exprs = sepmul(expression, ',')
 comma_values = sepmul(value, ',')
+comma_exprs = sepmul(expression, ',')
 comma_names = sepmul(name, ',')
 '''collection_constructor =
 collection_type ( [ value [, value]... ]);'''
@@ -173,7 +181,7 @@ conditional_predicate = (KW('INSERTING')
 
 '''boolean_literal =
  { TRUE | FALSE | NULL };'''
-boolean_literal = KW('TRUE') | kw('FALSE NULL')
+boolean_literal = KW('TRUE') | kw('FALSE') | kw('NULL')
 
 '''boolean_expression =
 [ NOT ] { boolean_constant
@@ -770,8 +778,44 @@ hierarchical_query_clause = (
     (kw('connect by') + Optional(kw('nocycle')) + sepmul(condition, kw('and')) + Optional(kw('start with') + condition))
     | (kw('start with') + condition + kw('connect by') + Optional(kw('nocycle')) + sepmul(condition, kw('AND'))))
 
+'''expression_list =
+{ expr [, expr ]...
+| ( [expr [, expr ]] ...)
+}'''
+expr_list = sepmul(expression, ',')
+expression_list = (expr_list | '(' + Optional(expr_list) + ')')
+
+'''grouping_expression_list =
+expression_list [, expression_list ]...'''
+grouping_expression_list = sepmul(expression_list, ',')
+
+'''rollup_cube_clause =
+{ ROLLUP | CUBE } (grouping_expression_list)'''
+rollup_cube_clause = (kw('rollup') | kw('cube')) + '(' + grouping_expression_list + ')'
+
+'''grouping_sets_clause =
+GROUPING SETS
+({ rollup_cube_clause | grouping_expression_list })'''
+grouping_sets_clause = (
+    kw('grouping sets')
+    + '(' + (rollup_cube_clause | grouping_expression_list) +')')
+
 '''group_by_clause =
-'''
+GROUP BY
+   { expr
+   | rollup_cube_clause
+   | grouping_sets_clause
+   }
+     [, { expr
+        | rollup_cube_clause
+        | grouping_sets_clause
+        }
+     ]...
+   [ HAVING condition ]'''
+group_by_clause = (
+    kw('group by')
+    + sepmul(expression | rollup_cube_clause | grouping_sets_clause,
+             ',') + Optional(kw('having') + condition))
 
 '''cell_reference_options =
 [ { IGNORE | KEEP } NAV ]
@@ -897,14 +941,6 @@ model_column_clauses
 model_rules_clause'''
 main_model = (Optional(kw('main') + name) + model_column_clauses + Optional(cell_reference_options) + model_rules_clause)
 
-'''model_clause =
-MODEL
-   [ cell_reference_options ]
-   [ return_rows_clause ]
-   [ reference_model ]...
-main_model'''
-model_clause = kw('model') + Optional(cell_reference_options) + Optional(return_rows_clause) + ZeroOrMore(referenc_model) + main_model
-
 '''reference_model =
 REFERENCE reference_spreadsheet_name
 ON (subquery)
@@ -913,6 +949,16 @@ model_column_clauses
 reference_model = (
     kw('reference') + name + kw('on') + '(' + subquery + ')'
     + model_column_clauses + Optional(cell_reference_options))
+
+'''model_clause =
+MODEL
+   [ cell_reference_options ]
+   [ return_rows_clause ]
+   [ reference_model ]...
+main_model'''
+model_clause = (
+    kw('model') + Optional(cell_reference_options)
+    + Optional(return_rows_clause) + ZeroOrMore(reference_model) + main_model)
 
 '''query_block =
 SELECT
@@ -956,7 +1002,10 @@ FOR UPDATE
     }
   ]'''
 for_update_clause = (
-    kw('for update') + Optional(kw('of') + Optional(sepmul(Optional(name + '.') + name + '.'), ',')))
+    kw('for update')
+    + Optional(kw('of')
+               + Optional(sepmul(Optional(Optional(name + '.') + name + '.')
+                                 + name, ',')))
     + Optional((kw('nowait') | (kw('wait') + nums)) | kw('skip locked')))
 
 '''dml_table_expression_clause =
@@ -978,21 +1027,22 @@ dml_table_expression_clause = (
 
 '''insert_into_clause =
 INTO dml_expression_clause [ t_alias ];'''
-insert_into_clause = KW('INTO') + dml_expression_clause + Optional(t_alias)
+insert_into_clause = KW('INTO') + dml_table_expression_clause + Optional(name)
 
 '''bounds_clause =
 { lower_bound .. upper_bound
 | INDICES OF collection [ BETWEEN lower_bound AND upper_bound ]
 | VALUES OF index_collection
 };'''
+lower_bound = upper_bound = (name | nums)
 bounds_clause = ((lower_bound + '..' + upper_bound)
     | (kw('INDICES OF') + collection + Optional(KW('BETWEEN') + lower_bound + KW('AND') + upper_bound)
-    | (kw('VALUES OF') + index_collection)))
+    | (kw('VALUES OF') + name)))
 
 '''forall_statement =
 FORALL index IN bounds_clause [ SAVE EXCEPTIONS ] dml_statement EOS;'''
 forall_statement = (KW('FORALL') + index + KW('IN') + bounds_clause
-    + Optional(kw('SAVE EXCEPTIONS')) + dml_statement + EOS)
+    + Optional(kw('SAVE EXCEPTIONS')) + SkipTo(EOS))
 
 '''for_loop_statement =
 [ FOR index IN [ REVERSE ] lower_bound .. upper_bound
@@ -1012,7 +1062,7 @@ for_loop_statement = (KW('FOR') + index + KW('IN') + Optional(KW('REVERSE'))
 
 '''inline_pragma =
 PRAGMA INLINE ( subprogram , { 'YES' | 'NO' } )  EOS;'''
-inline_pragma = (kw('pragma inline') + '(' + subprogram + ','
+inline_pragma = (kw('pragma inline') + '(' + name + ','
                  + (kw('yes') | kw('no')) + ')' + EOS)
 
 '''exception_handler =
@@ -1028,15 +1078,185 @@ PROCEDURE procedure [ ( parameter_declaration [, parameter_declaration ]... ) ];
 procedure_heading = (kw('procedure') + name
     + Optional('(' + sepmul(parameter_declaration, ',') + ')'))
 
-'''procedure_definition =
-procedure_heading { IS | AS }
-  { [ declare_section ] body | call_spec | EXTERNAL };'''
-procedure_definiton = procedure_heading + isas + (
-  (Optional(declare_section) + body) | call_spec | kw('external'))
+isas = KW('IS') | KW('AS')
 
 '''procedure_declaration =
 procedure_heading;'''
 procedure_declaration = procedure_heading
+
+'''commit_statement =
+COMMIT [ WORK ]
+  [ [ COMMENT string ]
+    | [ WRITE [ WAIT | NOWAIT ] [ IMMEDIATE | BATCH ]
+    ]
+  | FORCE { string [, integer ]
+          | CORRUPT_XID string
+          | CORRUPT_XID_ALL
+          }
+  ] ;'''
+string = Word(alphanums, asKeyword=False)
+commit_statement = kw('commit') + Optional(kw('work')) + (
+    Optional(Optional(kw('comment') + string)
+             | Optional(kw('write') + Optional(kw('wait') | kw('nowait'))
+                        + Optional(kw('immediate') | kw('batch'))))
+    | (kw('force') + ((string + Optional(',' + nums))
+                      | (kw('corrupt_xid') + string)
+                      | kw('corrupt_xid_all'))))
+
+'''returning_clause =
+{ RETURN | RETURNING } expr [, expr ]...
+INTO data_item [, data_item ]...'''
+returning_clause = (
+    (kw('RETURN') | kw('RETURNING'))
+    + sepmul(expression, ',') + kw('INTO') + sepmul(name, ','))
+
+'''error_logging_clause =
+LOG ERRORS
+  [ INTO [schema.] table ]
+  [ (simple_expression) ]
+  [ REJECT LIMIT { integer | UNLIMITED } ]'''
+error_logging_clause = (
+    kw('LOG ERRORS')
+    + Optional(kw('INTO') + Optional(name + '.') + name)
+    + Optional('(' + expression + ')')
+    + Optional(kw('reject limit') + (nums | kw('unlimited'))))
+
+'''conditional_insert_clause =
+[ ALL | FIRST ]
+WHEN condition
+THEN insert_into_clause
+  [ values_clause ]
+  [ error_logging_clause ]
+  [ insert_into_clause [ values_clause ] [ error_logging_clause ] ]...
+[ WHEN condition
+  THEN insert_into_clause
+    [ values_clause ]
+    [ error_logging_clause ]
+    [ insert_into_clause [ values_clause ] [ error_logging_clause ] ]...
+]...
+[ ELSE insert_into_clause
+  [ values_clause ]
+  [ error_logging_clause ]
+   [ insert_into_clause [ values_clause ] [ error_logging_clause ] ]...
+]'''
+_ivei = (insert_into_clause + Optional(values_clause)
+         + Optional(error_logging_clause))
+conditional_insert_clause = (
+    Optional(kw('ALL') | kw('FIRST'))
+    + OneOrMore(kw('WHEN') + condition
+                + kw('THEN') + OneOrMore(_ivei))
+    + Optional(kw('ELSE') + OneOrMore(_ivei))
+)
+
+'''single_table_insert =
+insert_into_clause
+{ values_clause [ returning_clause ]
+| subquery
+} [ error_logging_clause ]'''
+single_table_insert = (
+    insert_into_clause + (
+        (values_clause + Optional(returning_clause))
+        | subquery) + Optional(error_logging_clause))
+
+'''multi_table_insert =
+{ ALL
+  { insert_into_clause [ values_clause ] [error_logging_clause] }...
+| conditional_insert_clause
+} subquery
+'''
+multi_table_insert = (
+    ((kw('ALL')
+      + OneOrMore(insert_into_clause + Optional(values_clause)
+                  + Optional(error_logging_clause)))
+     | conditional_insert_clause)
+    + subquery)
+
+'''insert_statement =
+INSERT [ hint ]
+   { single_table_insert | multi_table_insert } ;'''
+insert_statement = kw('insert') + Optional(hint) + (single_table_insert | multi_table_insert)
+
+'''delete_statement =
+DELETE [ hint ]
+   [ FROM ]
+   { dml_table_expression_clause
+   | ONLY (dml_table_expression_clause)
+   } [ t_alias ]
+     [ where_clause ]
+     [ returning_clause ]
+     [error_logging_clause];'''
+delete_statement = (
+    kw('DELETE') + Optional(hint) + Optional(kw('FROM'))
+    + (dml_table_expression_clause
+       | (kw('ONLY') + '(' + dml_table_expression_clause + ')'))
+    + Optional(alias) + Optional(where_clause)
+    + Optional(returning_clause) + Optional(error_logging_clause))
+
+lockmode = (kw('ROW SHARE') | kw('ROW EXCLUSIVE') | kw('SHARE UPDATE')
+            | kw('SHARE') | kw('SHARE ROW EXCLUSIVE') | kw('EXCLUSIVE'))
+
+'''lock_table_statement =
+LOCK TABLE [ schema. ] { table | view }
+   [ partition_extension_clause
+   | @ dblink
+   ] [, [ schema. ] { table | view }
+      [ partition_extension_clause
+      | @ dblink
+      ]
+     ]...
+   IN lockmode MODE
+   [ NOWAIT
+   | WAIT integer
+   ] ;'''
+lock_table_statement = (
+    kw('lock table') + sepmul(Optional(name + '.') + name
+    + Optional(partition_extension_clause | dblink), ',')
+    + kw('IN') + lockmode + kw('MODE')
+    + Optional(kw('NOWAIT') | (kw('WAIT') + nums)))
+
+'''rollback_statement =
+ROLLBACK [ WORK ]
+   [ TO [ SAVEPOINT ] savepoint
+   | FORCE string
+   ] ;'''
+rollback_statement = (
+    kw('ROLLBACK') + Optional(kw('WORK'))
+    + Optional((kw('TO') + Optional(kw('SAVEPOINT')) + name)
+               | (kw('FORCE') + string)))
+
+savepoint_statement = kw('SAVEPOINT') + name + EOS
+
+'''set_transaction_statement =
+SET TRANSACTION
+   { { READ { ONLY | WRITE }
+     | ISOLATION LEVEL
+       { SERIALIZABLE | READ COMMITTED }
+     | USE ROLLBACK SEGMENT rollback_segment
+     } [ NAME string ]
+   | NAME string
+   } ;
+'''
+set_transaction_statement = (
+    kw('set transaction')
+    + ((((kw('read') + (kw('only') | kw('write')))
+       | (kw('isolation level') + (kw('serializable') | kw('read commited')))
+       | (kw('use rollback segment') + name)) + Optional(kw('name') + string))
+    | (kw('name') + string)))
+
+'''update_statement =
+UPDATE [ hint ]
+   { dml_table_expression_clause
+   | ONLY (dml_table_expression_clause)
+   } [ t_alias ]
+   update_set_clause
+   [ where_clause ]
+   [ returning_clause ]
+   [error_logging_clause] ;'''
+update_statement = (
+    kw('UPDATE') + Optional(hint)
+    + (dml_table_expression_clause | (kw('ONLY') + '(' + dml_table_expression_clause + ')')) + Optional(name)
+    + update_set_clause + Optional(where_clause) + Optional(returning_clause)
+    + Optional(error_logging_clause))
 
 '''sql_statement =
 { commit_statement
@@ -1066,8 +1286,29 @@ procedure_call = (name + Optional('('
 '''table_reference =
 [ schema.] db_table_view
   { PARTITION ( partition ) | SUBPARTITION ( subpartition ) | @dblink }'''
-table_reference = Optional(schema + '.') + db_table_or_view + (
+table_reference = Optional(name + '.') + db_table_or_view + (
     ((kw('subpartition') | kw('partition')) + '(' + name + ')') | ('@' + name))
+
+'''select_item =
+{ function [ ( parameter [ [,] parameter ]... ) ]
+| NULL
+| numeric_literal
+| [ schema . ] db_table_view.*
+| [ [ schema . ] db_table_view. ] column
+| sequence . { CURRVAL | NEXTVAL }
+| subquery
+| 'text'
+}
+[ [ AS ] alias]'''
+select_item = (
+    ((name + Optional('(' + sepmul(name, ',') + ')'))
+     | kw('NULL')
+     | numeric_literal
+     | (Optional(name + '.') + db_table_or_view + '.*')
+     | (Optional(Optional(name + '.') + db_table_or_view + '.') + name)
+     | (name + '.' + (kw('currval') | kw('nextval')))
+     | subquery
+     | character_literal) + Optional(Optional(kw('AS')) + name))
 
 '''select_into_statement =
 SELECT [ { DISTINCT | UNIQUE } | ALL ]
@@ -1083,70 +1324,184 @@ select_into_statement = (kw('SELECT')
     + (Literal('*') | sepmul(select_item, ','))
     + (into_clause | bulk_collect_into_clause)
     + kw('FROM') + sepmul(from_item, ',')
-    + rest_of_statement)
+    + Optional(where_clause)
+    + Optional(hierarchical_query_clause)
+    + Optional(group_by_clause)
+    + Optional(model_clause))
 
-'''statement =
-[ "<<" label ">>" [ "<<" label ">>" ] ...]
-  { assignment_statement
-  | basic_loop_statement
-  | close_statement
-  | continue_statement
-  | cursor_for_loop_statement
-  | execute_immediate_statement
-  | exit_statement
-  | fetch_statement
-  | for_loop_statement
-  | forall_statement
-  | goto_statement
-  | if_statement
-  | null_statement
-  | open_statement
-  | open_for_statement
-  | pipe_row_statement
-  | plsql_block
-  | raise_statement
-  | return_statement
-  | select_into_statement
-  | sql_statement
-  | while_loop_statement
-  };
+'''cursor_for_loop_statement =
+[ FOR record IN
+  { cursor [ ( cursor_parameter_declaration
+               [ [,] cursor_parameter_declaration ]... )]
+  | ( select_statement )
+  }
+    LOOP statement... END LOOP [label] ;'''
+cursor_for_loop_statement = (
+    Optional(kw('FOR') + name + kw('IN')
+             + ((name + Optional(sepmul(name, ',')))
+                | ('(' + select_statement + ')')))
+    + kw('LOOP') + OneOrMore(statement) + kw('END LOOP') + Optional(name))
 
-basic_body =
+'''using_clause =
+USING [ IN | OUT | IN OUT ] bind_argument
+  [ [,] [ [ IN | OUT | IN OUT ] bind_argument ]...'''
+using_clause = (kw('USING')
+                + sepmul(Optional(kw('IN') | kw('OUT') | kw('IN OUT')) + name, ','))
+
+'''dynamic_returning_clause =
+{ RETURNING | RETURN } { into_clause | bulk_collect_into_clause }'''
+dynamic_returning_clause = (kw('returning') | kw('return')) + (into_clause | bulk_collect_into_clause)
+
+'''execute_immediate_statement =
+EXECUTE IMMEDIATE dynamic_sql_stmt
+  [ { into_clause | bulk_collect_into_clause } [ using_clause ]
+  | using_clause [ dynamic_returning_clause ]
+  | dynamic_returning_clause
+  ] ;'''
+execute_immediate_statement = (
+    kw('execute immediate') + character_literal + (
+        ((into_clause | bulk_collect_into_clause) + Optional(using_clause))
+        | (using_clause + Optional(dynamic_returning_clause))
+        | dynamic_returning_clause
+        ))
+
+'''open_for_statement =
+OPEN { cursor_variable | :host_cursor_variable}
+  FOR select_statement [ using_clause ] ;'''
+open_for_statement = (
+    kw('open') + (name | host_variable)
+    + kw('for') + select_statement + Optional(using_clause))
+
+'''basic_body =
 BEGIN statement [ statement | inline_pragma ]...
-  [ EXCEPTION exception_handler [ exception_handler ]... ] END [ name ]  EOS;
+  [ EXCEPTION exception_handler [ exception_handler ]... ] END [ name ]  EOS;'''
+basic_body = (
+    kw('begin') + statement + ZeroOrMore(statement | inline_pragma)
+    + Optional(kw('exception') + OneOrMore(exception_handler))
+    + kw('end') + Optional(name) + EOS)
 
-pragma =
+autonomous_transaction_pragma = kw('PRAGMA autonomous_transaction') + EOS
+exception_init_pragma = kw('PRAGMA exception_init') + '(' + name + ',' + Optional('-') + nums + ')' + EOS
+inline_pragma = kw('PRAGMA inline') + '(' + name + ',' + (kw("'YES'") | kw("'NO'")) + ')' + EOS
+restrict_references_pragma = (
+    kw('PRAGMA restrict_references')
+    + '(' + (name | kw('DEFAULT')) + ','
+    + sepmul(kw('RNDS') | kw('WNDS') | kw('RNPS') | kw('WNPS') | kw('TRUST'),
+             ',')
+    + ')' + EOS)
+serially_reusable_pragma = kw('PRAGMA serially_reusable') + EOS
+'''pragma =
 { autonomous_transaction_pragma
 | exception_init_pragma
 | inline_pragma
 | restrict_references_pragma
 | serially_reusable_pragma
-};
+};'''
+pragma = (
+  autonomous_transaction_pragma
+| exception_init_pragma
+| inline_pragma
+| restrict_references_pragma
+| serially_reusable_pragma
+)
 
-item_declaration =
+'''constant_declaration =
+constant CONSTANT datatype [NOT NULL] { := | DEFAULT } expression ;'''
+constant_declaration = name + kw('constant') + datatype + Optional(kw('not null')) + (':=' | kw('default')) + expression + EOS
+
+'''field_definition =
+field datatype [ [ NOT NULL ] { := | DEFAULT } expression ]'''
+field_definition = name + datatype + Optional(Optional(kw('not null')) + (':=' | kw('default')) + expression)
+
+'''record_variable_declaration =
+TYPE record_type IS RECORD  ( field_definition [, field_definition]... ) ;'''
+record_variable_declaration = kw('TYPE') + name + kw('is record') + '(' + sepmul(field_definition, ',') + EOS
+
+'''item_declaration =
 { collection_variable_dec
 | constant_declaration
 | cursor_variable_declaration
 | exception_declaration
 | record_variable_declaration
 | variable_declaration
-};
+};'''
+item_declaration = (
+  collection_variable_dec
+| constant_declaration
+| cursor_variable_declaration
+| exception_declaration
+| record_variable_declaration
+| variable_declaration
+)
 
-constraint =
-{ precision [, scale ] | RANGE low_value .. high_value };
+'''constraint =
+{ precision [, scale ] | RANGE low_value .. high_value };'''
+constraint = (
+    (nums + Optional(',' + nums))
+    | (kw('range') + nums + '..' + nums))
 
-subtype_definition =
+character_set = name
+
+'''subtype_definition =
 SUBTYPE subtype IS base_type [ constraint | CHARACTER SET character_set ]
-  [ NOT NULL ];
+  [ NOT NULL ];'''
+subtype_definition = kw('subtype') + name + kw('is') + name + Optional(constraint | (kw('character set') + character_set))
 
-type_definition =
+'''collection_type_definiton = TYPE type IS
+   { assoc_array_type_def
+   | varray_type_def
+   | nested_table_type_def
+   } ;'''
+collection_type_definition = kw('type') + name + kw('is') + (assoc_array_type_def | varray_type_def | nested_table_type_def)
+
+record_type_definition = kw('type') + name + kw('is record') + '(' + sepmul(name + datatype, ',') + ')' + EOS
+'''type_definition =
 { collection_type_definition
 | record_type_definition
 | ref_cursor_type_definition
 | subtype_definition
-};
+};'''
+type_definition = (
+  collection_type_definition
+| record_type_definition
+| ref_cursor_type_definition
+| subtype_definition
+)
 
-item_list_2 =
+function_declaration = Forward()
+function_definition = Forward()
+procedure_definition = Forward()
+
+'''item_list_1 =
+{ type_definition
+| cursor_declaration
+| item_declaration
+| function_declaration
+| procedure_declaration
+}
+  [ { type_definition
+    | cursor_declaration
+    | item_declaration
+    | function_declaration
+    | procedure_declaration
+    | pragma
+    }
+  ]...;'''
+item_list_1 = (
+  type_definition
+| cursor_declaration
+| item_declaration
+| function_declaration
+| procedure_declaration
+) + ZeroOrMore(
+      type_definition
+    | cursor_declaration
+    | item_declaration
+    | function_declaration
+    | procedure_declaration
+    | pragma)
+
+'''item_list_2 =
 { cursor_declaration
 | cursor_definition
 | function_declaration
@@ -1162,33 +1517,86 @@ item_list_2 =
     | procedure_definition
     | pragma
     }
-  ]...;
-
-item_list_1 =
-{ type_definition
-| cursor_declaration
-| item_declaration
+  ]...;'''
+item_list_2 = (
+  cursor_declaration
+| cursor_definition
 | function_declaration
+| function_definition
 | procedure_declaration
-}
-  [ { type_definition
-    | cursor_declaration
-    | item_declaration
+| procedure_definition
+) + ZeroOrMore(
+      cursor_declaration
+    | cursor_definition
     | function_declaration
+    | function_definition
     | procedure_declaration
+    | procedure_definition
     | pragma
-    }
-  ]...;
+    )
 
-declare_section =
+'''declare_section =
 { item_list_1 [ item_list_2 ] | item_list_2 };'''
-
-isas = KW('IS') | KW('AS')
+declare_section = (item_list_1 + Optional(item_list_2)) | item_list_2
 
 '''function_heading =
 FUNCTION function [ ( parameter_declaration [, parameter_declaration ] ) ]
   RETURN datatype;'''
 function_heading = KW('FUNCTION') + name + Optional('(' + sepmul(parameter_declaration, ',') + ')') + KW('RETURN') + datatype
+
+'''body =
+BEGIN statement [ statement | inline_pragma ]...
+  [ EXCEPTION exception_handler [ exception_handler ]... ] END [ name ] ;'''
+body = (
+    kw('BEGIN') + statement + ZeroOrMore(statement | inline_pragma)
+    + Optional(kw('EXCEPTION') + OneOrMore(exception_handler))
+    + kw('END') + Optional(name) + EOS)
+
+'''Java_declaration =
+JAVA NAME string'''
+Java_declaration = kw('JAVA NAME') + string
+
+'''property =
+{ INDICATOR [ STRUCT | TDO ]
+| LENGTH
+| DURATION
+| MAXLEN
+| CHARSETID
+| CHARSETFORM
+}'''
+property_ = ((kw('indicator') + Optional(kw('struct') | kw('tdo')))
+            | kw('length') | kw('duration') | kw('maxlen')
+            | kw('charsetid') | kw('charsetform'))
+
+'''parameter =
+{ CONTEXT
+| SELF [ TDO | property ]
+| { parameter | RETURN } [ property ] [ BY REFERENCE ] [ external_datatype ]
+}'''
+external_datatype = string
+external_parameter = (
+    kw('CONTEXT')
+    | (kw('self') + Optional(kw('tdo') | property_))
+    | ((parameter | kw('return')) + Optional(property_)
+       + Optional(kw('by reference'))
+       + Optional(external_datatype)))
+
+'''C_declaration =
+C { [ NAME name ] LIBRARY lib_name | LIBRARY lib_name [ NAME name ] }
+   [ AGENT IN ( argument[, argument ]... ) ]
+   [ WITH CONTEXT ]
+   [ PARAMETERS ( parameter[, parameter ]... ) ]'''
+argument = name
+C_declaration = kw('C') + (
+    ((Optional(kw('name') + name) + kw('library') + name)
+     | (kw('library') + name + Optional(kw('name') + name)))
+    + Optional(kw('agent in') + '(' + sepmul(argument, ',') + ')')
+    + Optional(kw('with context'))
+    + Optional(kw('parameters') + '(' + sepmul(parameter, ',') + ')'))
+
+'''call_spec =
+LANGUAGE { Java_declaration | C_declaration }'''
+call_spec = kw('LANGUAGE') + (Java_declaration | C_declaration)
 
 '''function_definition =
 function_heading [ DETERMINISTIC
@@ -1197,7 +1605,7 @@ function_heading [ DETERMINISTIC
                  | RESULT_CACHE [ relies_on_clause ]
                  ]...
   { IS | AS } { [ declare_section ] body | call_spec | EXTERNAL };'''
-function_definition = function_heading + ZeroOrMore(
+function_definition << function_heading + ZeroOrMore(
     KW('DETERMINISTIC')
   | KW('PIPELINED') | KW('PARALLEL_ENABLE')
   | (KW('RESULT_CACHE') + Optional(relies_on_clause))) + isas + ((Optional(declare_section) + body)
@@ -1206,14 +1614,23 @@ function_definition = function_heading + ZeroOrMore(
 '''function_declaration =
 function_heading
   [ DETERMINISTIC | PIPELINED | PARALLEL_ENABLE | RESULT_CACHE ]...  EOS;'''
-function_declaration = (function_heading + ZeroOrMore(*map(KW,
-    'DETERMINISTIC PIPELINED PARALLEL_ENABLE RESULT_CACHE'.split()))
+function_declaration << (function_heading + ZeroOrMore(
+        kw('DETERMINISTIC') | kw('PIPELINED') | kw('PARALLEL_ENABLE')
+        | kw('RESULT_CACHE'))
     + EOS)
 
-'''plsql_block =
-[ "<<" label ">>" ]... [ DECLARE declare_section ] body;
+'''procedure_definition =
+procedure_heading { IS | AS }
+  { [ declare_section ] body | call_spec | EXTERNAL };'''
+procedure_definition << procedure_heading + isas + (
+  (Optional(declare_section) + body) | call_spec | kw('external'))
 
-initialize_section =
+
+'''plsql_block =
+[ "<<" label ">>" ]... [ DECLARE declare_section ] body;'''
+plsql_block = ZeroOrMore('<<' + name + '>>') + Optional(kw('DECLARE') + declare_section) + body
+
+'''initialize_section =
 BEGIN statement [ statement | pragma ]...
   [ EXCEPTION exception_handler [ exception_handler ]... ];
 
@@ -1284,80 +1701,12 @@ statement << ZeroOrMore("<<" + name + ">>") + (
 '''exception_handler =
 WHEN { exception [ OR exception ]... | OTHERS }
   THEN statement [ statement ]...;'''
-exception_handler = KW('WHEN') + (name + ZeroOrMany(Optional(KW('OR') + name)) | KW('OTHERS')) + KW('THEN') + statement
+exception_handler = KW('WHEN') + (name + ZeroOrMore(Optional(KW('OR') + name)) | KW('OTHERS')) + KW('THEN') + statement
 
 '''initialize_section =
 BEGIN statement [ statement | pragma ]...
   [ EXCEPTION exception_handler [ exception_handler ]... ];'''
-initialize_section = KW('BEGIN') + statement + ZeroOrMany(statement | pragma) + Optional(KW('EXCEPTION') + OneOrMany(exception_handler))
-
-'''
-plsql_block =
-[ "<<" label ">>" ]... [ DECLARE declare_section ] body;
-declare_section =
-{ item_list_1 [ item_list_2 ] | item_list_2 };
-item_list_1 =
-{ type_definition
-| cursor_declaration
-| item_declaration
-| function_declaration
-| procedure_declaration
-}
-  [ { type_definition
-    | cursor_declaration
-    | item_declaration
-    | function_declaration
-    | procedure_declaration
-    | pragma
-    }
-  ]...;
-item_list_2 =
-{ cursor_declaration
-| cursor_definition
-| function_declaration
-| function_definition
-| procedure_declaration
-| procedure_definition
-}
-  [ { cursor_declaration
-    | cursor_definition
-    | function_declaration
-    | function_definition
-    | procedure_declaration
-    | procedure_definition
-    | pragma
-    }
-  ]...;
-type_definition =
-{ collection_type_definition
-| record_type_definition
-| ref_cursor_type_definition
-| subtype_definition
-};
-subtype_definition =
-SUBTYPE subtype IS base_type [ constraint | CHARACTER SET character_set ]
-  [ NOT NULL ];
-constraint =
-{ precision [, scale ] | RANGE low_value .. high_value };
-item_declaration =
-{ collection_variable_dec
-| constant_declaration
-| cursor_variable_declaration
-| exception_declaration
-| record_variable_declaration
-| variable_declaration
-};
-pragma =
-{ autonomous_transaction_pragma
-| exception_init_pragma
-| inline_pragma
-| restrict_references_pragma
-| serially_reusable_pragma
-};
-basic_body =
-BEGIN statement [ statement | inline_pragma ]...
-  [ EXCEPTION exception_handler [ exception_handler ]... ] END [ name ]  EOS;
-'''
+initialize_section = KW('BEGIN') + statement + ZeroOrMore(statement | pragma) + Optional(KW('EXCEPTION') + OneOrMore(exception_handler))
 
 '''invoker_rights_clause =
 AUTHID { CURRENT_USER | DEFINER };'''
@@ -1378,6 +1727,37 @@ CREATE [ OR REPLACE ] PACKAGE BODY [ schema. ] package_name
 END [ package_name ]  EOS;
 '''
 create_package_body = (kw('create') + Optional(kw('or replace'))
-    + kw('package body') + Optional(schema + '.') + name + isas
+    + kw('package body') + Optional(name + '.') + name + isas
     + declare_section + Optional(initialize_section)
     + kw('end') + name + EOS)
+
+create_pkg = (create_package | create_package_body)
+
+parser_elements = None  # to be able to use locals().iteritems
+parser_elements = dict(tup for tup in globals().items()
+                       if isinstance(tup[1], ParserElement))
+
+
+def validate(elements=None, all=False):
+    ok = True
+    for k, x in sorted(elements or parser_elements.iteritems(),
+                       key=lambda tup: len(str(tup[1]))):
+        try:
+            x.validate()
+        except RecursiveGrammarException:
+            LOG.error(k + u' is \u221e recursive!')
+            ok = False
+            if not all:
+                break
+    return ok
+
+#assert create_pkg.validate()
+
+if '__main__' == __name__:
+    logging.basicConfig(level=logging.DEBUG)
+    #assert validate()
+    validate()
+    import sys
+    inp = open(sys.argv[2], 'rb') if len(sys.argv) > 2 else sys.stdin
+    for elt in parser_elements[sys.argv[1]].scanString(inp.read()):
+        print elt
