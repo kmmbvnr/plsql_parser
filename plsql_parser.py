@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from pyparsing import *
+from pyparsing import And, ZeroOrMore, OneOrMore, Literal, Word, Forward, \
+    CaselessKeyword, Optional, nums, alphanums, QuotedString, SkipTo, LineEnd
+from pyparsing import ParserElement, RecursiveGrammarException
 import logging
 LOG = logging.getLogger(__name__)
 
@@ -83,7 +85,9 @@ numeric_subexpression = (
 '''numeric_expression =
  numeric_subexpression
  [ { + | - | * | / } numeric_subexpression ]...;'''
-numeric_expression = numeric_subexpression + ZeroOrMore((Literal('+') | '-' | '*' | '/') + numeric_subexpression)
+numeric_expression = (
+    numeric_subexpression + ZeroOrMore((Literal('+') | '-' | '*' | '/')
+                                       + numeric_subexpression))
 
 character_literal = QuotedString("'", escQuote="''", multiline=True)
 # Combine("'" + ZeroOrMore("''" | CharsNotIn("'")) + "'")
@@ -170,7 +174,8 @@ other_boolean_form = (
                           )
                     | (relational_operator + expression)
                     ))
-    | ((named_cursor | KW('SQL')) + '%' + (KW('FOUND') | KW('ISOPEN') | KW('NOTFOUND')))
+    | ((named_cursor | KW('SQL'))
+       + '%' + (KW('FOUND') | KW('ISOPEN') | KW('NOTFOUND')))
     )
 
 '''conditional_predicate =
@@ -200,14 +205,15 @@ boolean_literal = KW('TRUE') | kw('FALSE') | kw('NULL')
                                }
         ]...;'''
 boolean_expr = (Optional(KW('NOT'))
-    + ( boolean_constant
-        | boolean_function_call
-        | boolean_literal
-        | boolean_variable
-        | conditional_predicate
-        | other_boolean_form
-        ))
-boolean_expression = boolean_expr + ZeroOrMore((KW('AND') | KW('OR')) + boolean_expr)
+    + (boolean_constant
+       | boolean_function_call
+       | boolean_literal
+       | boolean_variable
+       | conditional_predicate
+       | other_boolean_form
+       ))
+boolean_expression = boolean_expr + ZeroOrMore((KW('AND') | KW('OR'))
+                                               + boolean_expr)
 
 '''simple_case_expression =
 CASE case_operand
@@ -258,9 +264,11 @@ expression << (
 '''exit_statement =
 EXIT [ label ] [ WHEN boolean_expression ]  EOS;
 '''
-exit_statement = KW('EXIT') + Optional(label) + Optional(KW('WHEN') + boolean_expression) + EOS
+exit_statement = (KW('EXIT') + Optional(label)
+                  + Optional(KW('WHEN') + boolean_expression) + EOS)
 
-collection_variable = cursor_variable = db_table_or_view = object_ = record_variable = scalar_variable = name
+collection_variable = cursor_variable = db_table_or_view = object_ \
+    = record_variable = scalar_variable = name
 
 '''type_attribute =
 { collection_variable
@@ -293,7 +301,8 @@ record_type = _type
 { explicit_cursor | cursor_variable | db_table_or_view } %ROWTYPE;
 '''
 explicit_cursor = variable
-rowtype_attribute = ((explicit_cursor | cursor_variable | db_table_or_view) + '%' + KW('ROWTYPE'))
+rowtype_attribute = ((explicit_cursor | cursor_variable | db_table_or_view)
+                     + '%' + KW('ROWTYPE'))
 
 ''' datatype =
  { collection_type
@@ -323,7 +332,8 @@ rowtype = (
 '''cursor_parameter_dec =
 parameter [IN] datatype [ { := | DEFAULT } expression ];
 '''
-cursor_parameter_dec = name + Optional(KW('IN')) + datatype + Optional((':=' | KW('DEFAULT')) + expression)
+cursor_parameter_dec = (name + Optional(KW('IN')) + datatype
+                        + Optional((':=' | KW('DEFAULT')) + expression))
 
 cursor_parameter_declaration = sepmul(cursor_parameter_dec, ',')
 
@@ -355,7 +365,8 @@ goto_statement = KW('GOTO') + label + EOS
 '''continue_statement =
 CONTINUE [ label ] [ WHEN boolean_expression ]  EOS;
 '''
-continue_statement = KW('CONTINUE') + Optional(label) + Optional(KW('WHEN') + boolean_expression) + EOS
+continue_statement = (KW('CONTINUE') + Optional(label)
+                      + Optional(KW('WHEN') + boolean_expression) + EOS)
 
 '''where_clause =
 WHERE condition CURRENT OF for_update_cursor;
@@ -371,7 +382,8 @@ update_set_clause = kw('SET ROW') + record
 '''relies_on_clause =
 RELIES_ON ( [ data_source [, data_source]... ] );'''
 data_source = db_table_or_view
-relies_on_clause = KW('RELIES_ON') + '(' + Optional(sepmul(data_source, ',')) + ')'
+relies_on_clause = (KW('RELIES_ON') + '('
+                    + Optional(sepmul(data_source, ',')) + ')')
 
 '''variable_declaration =
 variable datatype [ [ NOT NULL] {:= | DEFAULT} expression ]  EOS;'''
@@ -383,7 +395,8 @@ variable_declaration = (variable + datatype
 
 '''close_statement =
 CLOSE { cursor | cursor_variable | :host_cursor_variable }  EOS;'''
-close_statement = KW('CLOSE') + (named_cursor | cursor_variable | host_variable)
+close_statement = (KW('CLOSE')
+                   + (named_cursor | cursor_variable | host_variable))
 
 '''assignment_statement_target =
 { collection_variable [ ( index ) ]
@@ -424,11 +437,14 @@ parameter = expression
 '''
 function_call =
 function [ ( [ parameter [, parameter ]... ] ) ];'''
-function_call = name + Optional('(' + Optional(sepmul(parameter, ',')) + ')')
+function_call = (name
+                 + Optional('(' + Optional(sepmul(parameter, ',')) + ')'))
 
 '''open_statement =
-OPEN cursor [ ( cursor_parameter [ [,] actual_cursor_parameter ]... ) ]  EOS;'''
-open_statement = KW('OPEN') + named_cursor + Optional('(' + sepmul(parameter, ',') + ')')
+OPEN cursor [ ( cursor_parameter [ [,] actual_cursor_parameter ]... ) ]
+EOS;'''
+open_statement = (KW('OPEN') + named_cursor
+                  + Optional('(' + sepmul(parameter, ',') + ')'))
 
 '''exception_declaration =
 exception EXCEPTION EOS;'''
@@ -449,7 +465,8 @@ TYPE type IS REF CURSOR
   ]  EOS;'''
 ref_cursor_type_definition = (KW('TYPE') + _type + kw('IS REF CURSOR')
     + Optional(
-        (KW('RETURN') + ((db_table_or_view | named_cursor | cursor_variable) + '%' + KW('ROWTYPE')))
+        (KW('RETURN') + ((db_table_or_view | named_cursor | cursor_variable)
+                         + '%' + KW('ROWTYPE')))
         | (record + '%' + KW('TYPE'))
         | record_type
         | ref_cursor_type)
@@ -482,8 +499,10 @@ pipe_row_statement = kw('PIPE ROW') + '(' + row + ')' + EOS
 IF boolean_expression THEN statement [ statement ]...
  [ ELSIF boolean_expression THEN statement [ statement ]... ]...
    [ ELSE statement [ statement ]... ] END IF  EOS;'''
-if_statement = (KW('IF') + boolean_expression + KW('THEN') + OneOrMore(statement)
-    + Optional(KW('ELSIF') + boolean_expression + KW('THEN') + OneOrMore(statement))
+if_statement = (KW('IF') + boolean_expression + KW('THEN')
+                + OneOrMore(statement)
+    + Optional(KW('ELSIF') + boolean_expression + KW('THEN')
+               + OneOrMore(statement))
     + Optional(KW('ELSE') + OneOrMore(statement))
     + kw('END IF') + EOS)
 
@@ -502,7 +521,10 @@ assoc_array_type = _type
 varray_type = _type
 nested_table_type = _type
 size_limit = nums
-collection_variable_dec = (name + (assoc_array_type | ((varray_type | nested_table_type) + Optional(':=' + (collection_constructor | name)))))
+collection_variable_dec = (
+    name + (assoc_array_type
+            | ((varray_type | nested_table_type)
+               + Optional(':=' + (collection_constructor | name)))))
 
 '''nested_table_type_def =
 TABLE OF datatype [ NOT NULL ];'''
@@ -540,7 +562,8 @@ basic_loop_statement = (KW('LOOP') + OneOrMore(statement)
 '''bulk_collect_into_clause = BULK COLLECT INTO { collection | :host_array }
   [, { collection | :host_array } ]...
 '''
-bulk_collect_into_clause = kw('bulk collect into') + sepmul((collection | host_variable), ',')
+bulk_collect_into_clause = (kw('bulk collect into')
+                            + sepmul((collection | host_variable), ','))
 
 '''into_clause =
 INTO { variable [, variable ]... | record )'''
@@ -548,8 +571,10 @@ into_clause = kw('into') + (sepmul(variable, ',') | record)
 
 '''fetch_statement =
 FETCH { cursor | cursor_variable | :host_cursor_variable }
-  { into_clause | bulk_collect_into_clause [ LIMIT numeric_expression ] }  EOS;'''
-fetch_statement = (KW('FETCH') + (named_cursor | cursor_variable | host_variable)
+  { into_clause | bulk_collect_into_clause [ LIMIT numeric_expression ] }
+EOS;'''
+fetch_statement = (
+    KW('FETCH') + (named_cursor | cursor_variable | host_variable)
     + (into_clause | (bulk_collect_into_clause
                       + Optional(KW('LIMIT') + numeric_expression)))
     + EOS)
@@ -576,8 +601,9 @@ dblink = '@' + name
 WITH { READ ONLY
      | CHECK OPTION
      } [ CONSTRAINT constraint ]'''
-subquery_restriction_clause = (kw('WITH') + (kw('read only') | kw('check option'))
-    + Optional(kw('constraint') + name))
+subquery_restriction_clause = (
+    (kw('WITH') + (kw('read only') | kw('check option'))
+    + Optional(kw('constraint') + name)))
 
 subquery = Forward()
 
@@ -593,7 +619,9 @@ table_collection_expression = (kw('TABLE') + '(' + collection_expression + ')'
 SAMPLE [ BLOCK ]
        (sample_percent)
        [ SEED (seed_value) ]'''
-sample_clause = kw('sample') + Optional(kw('block')) + '(' + nums + '%' + ')' + Optional(kw('seed') + '(' + nums + ')')
+sample_clause = (kw('sample') + Optional(kw('block'))
+                 + '(' + nums + '%' + ')'
+                 + Optional(kw('seed') + '(' + nums + ')'))
 
 '''unpivot_in_clause =
 IN
@@ -603,7 +631,7 @@ IN
           [  AS {literal | ( literal [, literal]... ) } ]
         ]...
 )'''
-name_or_namelist = ('(' + (name | '(' + sepmul(name, ',') + ')')+ ')')
+name_or_namelist = ('(' + (name | '(' + sepmul(name, ',') + ')') + ')')
 unpivot_in_clause = sepmul(kw('IN') + name_or_namelist
     + Optional(kw('AS') + name_or_namelist))
 
@@ -619,8 +647,6 @@ IN ( { { { expr
 pivot_in_clause = (kw('IN') + '('
     + ((name_or_namelist + Optional(Optional(kw('AS')) + name))
        | subquery | sepmul(kw('ANY'))) + ')')
-
-
 
 '''pivot_for_clause =
 FOR { column
@@ -709,7 +735,8 @@ inner_cross_join_clause = (
     (Optional(kw('inner')) + kw('join')
      + table_reference + ((kw('on') + condition)
                           | (kw('using') + '(' + comma_names + ')')))
-    | ((kw('cross') | (kw('natural') + Optional(kw('inner')))) + kw('join') + table_reference)
+    | ((kw('cross') | (kw('natural') + Optional(kw('inner'))))
+       + kw('join') + table_reference)
 )
 
 '''query_partition_clause =
@@ -721,7 +748,8 @@ query_partition_clause = kw('parition by') + comma_exprs
 
 '''outer_join_type =
 { FULL | LEFT | RIGHT } [ OUTER ]'''
-outer_join_type = (kw('full') | kw('left') | kw('right')) + Optional(kw('outer'))
+outer_join_type = ((kw('full') | kw('left') | kw('right'))
+                   + Optional(kw('outer')))
 
 '''outer_join_clause =
   [ query_partition_clause ]
@@ -743,12 +771,14 @@ outer_join_clause = (Optional(query_partition_clause) + (
 { /*+ hint [ string ] [ hint [ string ] ]... */
 | --+ hint [ string ] [ hint [ string ] ]...
 }'''
-hint = ((Literal('/*+') + SkipTo(Literal('*/'))) | Literal('--+') + SkipTo(LineEnd()))
+hint = ((Literal('/*+') + SkipTo(Literal('*/'))) | Literal('--+')
+        + SkipTo(LineEnd()))
 
 '''join_clause =
 table_reference
   { inner_cross_join_clause | outer_join_clause }...'''
-join_clause = table_reference + OneOrMore(inner_cross_join_clause | outer_join_clause)
+join_clause = (table_reference
+               + OneOrMore(inner_cross_join_clause | outer_join_clause))
 
 '''select_list ={ [t_alias.] *
 | { query_name.*
@@ -775,8 +805,10 @@ select_list = (
 | START WITH condition CONNECT BY [ NOCYCLE ] condition [AND condition]...
 }'''
 hierarchical_query_clause = (
-    (kw('connect by') + Optional(kw('nocycle')) + sepmul(condition, kw('and')) + Optional(kw('start with') + condition))
-    | (kw('start with') + condition + kw('connect by') + Optional(kw('nocycle')) + sepmul(condition, kw('AND'))))
+    (kw('connect by') + Optional(kw('nocycle'))
+     + sepmul(condition, kw('and')) + Optional(kw('start with') + condition))
+    | (kw('start with') + condition + kw('connect by')
+       + Optional(kw('nocycle')) + sepmul(condition, kw('AND'))))
 
 '''expression_list =
 { expr [, expr ]...
@@ -791,14 +823,15 @@ grouping_expression_list = sepmul(expression_list, ',')
 
 '''rollup_cube_clause =
 { ROLLUP | CUBE } (grouping_expression_list)'''
-rollup_cube_clause = (kw('rollup') | kw('cube')) + '(' + grouping_expression_list + ')'
+rollup_cube_clause = ((kw('rollup') | kw('cube'))
+                      + '(' + grouping_expression_list + ')')
 
 '''grouping_sets_clause =
 GROUPING SETS
 ({ rollup_cube_clause | grouping_expression_list })'''
 grouping_sets_clause = (
     kw('grouping sets')
-    + '(' + (rollup_cube_clause | grouping_expression_list) +')')
+    + '(' + (rollup_cube_clause | grouping_expression_list) + ')')
 
 '''group_by_clause =
 GROUP BY
@@ -860,7 +893,8 @@ literal = name
 single_column_for_loop = (
     kw('for') + name + (
         (kw('in') + '(' + (sepmul(literal, ',') | subquery) + ')')
-        | (Optional(kw('like') + pattern) + kw('from') + literal + kw('to') + literal
+        | (Optional(kw('like') + pattern)
+           + kw('from') + literal + kw('to') + literal
            + (kw('increment') | kw('decrement')) + literal)
         )
     )
@@ -939,7 +973,8 @@ model_rules_clause = (
 model_column_clauses
 [ cell_reference_options ]
 model_rules_clause'''
-main_model = (Optional(kw('main') + name) + model_column_clauses + Optional(cell_reference_options) + model_rules_clause)
+main_model = (Optional(kw('main') + name) + model_column_clauses
+              + Optional(cell_reference_options) + model_rules_clause)
 
 '''reference_model =
 REFERENCE reference_spreadsheet_name
@@ -987,7 +1022,8 @@ query_block = (kw('SELECT') + Optional(hint)
 | ( subquery )
 } [ order_by_clause ]'''
 subquery << (query_block
-    | (subquery + OneOrMore(((kw('union') + Optional(kw('all'))) | kw('intersect') | kw('minus')) + subquery))
+    | (subquery + OneOrMore(((kw('union') + Optional(kw('all')))
+                             | kw('intersect') | kw('minus')) + subquery))
     | ('(' + subquery + ')')
     ) + Optional(order_by_clause)
 
@@ -1020,7 +1056,9 @@ for_update_clause = (
 | table_collection_expression
 }'''
 dml_table_expression_clause = (
-    (Optional(name + '.') + (name + Optional(partition_extension_clause | dblink) | (name + Optional(dblink))))
+    (Optional(name + '.')
+     + (name + Optional(partition_extension_clause | dblink)
+        | (name + Optional(dblink))))
     | ('(' + subquery + Optional(subquery_restriction_clause) + ')')
     | table_collection_expression
 )
@@ -1036,7 +1074,8 @@ insert_into_clause = KW('INTO') + dml_table_expression_clause + Optional(name)
 };'''
 lower_bound = upper_bound = (name | nums)
 bounds_clause = ((lower_bound + '..' + upper_bound)
-    | (kw('INDICES OF') + collection + Optional(KW('BETWEEN') + lower_bound + KW('AND') + upper_bound)
+    | (kw('INDICES OF') + collection
+       + Optional(KW('BETWEEN') + lower_bound + KW('AND') + upper_bound)
     | (kw('VALUES OF') + name)))
 
 '''forall_statement =
@@ -1074,7 +1113,8 @@ exception_handler = (kw('when')
   + kw('then') + OneOrMore(statement)))
 
 '''procedure_heading =
-PROCEDURE procedure [ ( parameter_declaration [, parameter_declaration ]... ) ];'''
+PROCEDURE procedure [
+  ( parameter_declaration [, parameter_declaration ]... ) ];'''
 procedure_heading = (kw('procedure') + name
     + Optional('(' + sepmul(parameter_declaration, ',') + ')'))
 
@@ -1174,7 +1214,8 @@ multi_table_insert = (
 '''insert_statement =
 INSERT [ hint ]
    { single_table_insert | multi_table_insert } ;'''
-insert_statement = kw('insert') + Optional(hint) + (single_table_insert | multi_table_insert)
+insert_statement = (kw('insert') + Optional(hint)
+                    + (single_table_insert | multi_table_insert))
 
 '''delete_statement =
 DELETE [ hint ]
@@ -1254,7 +1295,9 @@ UPDATE [ hint ]
    [error_logging_clause] ;'''
 update_statement = (
     kw('UPDATE') + Optional(hint)
-    + (dml_table_expression_clause | (kw('ONLY') + '(' + dml_table_expression_clause + ')')) + Optional(name)
+    + (dml_table_expression_clause
+       | (kw('ONLY') + '(' + dml_table_expression_clause + ')'))
+    + Optional(name)
     + update_set_clause + Optional(where_clause) + Optional(returning_clause)
     + Optional(error_logging_clause))
 
@@ -1318,7 +1361,8 @@ SELECT [ { DISTINCT | UNIQUE } | ALL ]
           [ { table_reference | [ THE ] ( subquery ) } [ alias ] ]...
             rest-of-statement ;
 '''
-from_item = (table_reference | (kw('THE') + '(' + subquery + ')')) + Optional(alias)
+from_item = ((table_reference | (kw('THE') + '(' + subquery + ')'))
+             + Optional(alias))
 select_into_statement = (kw('SELECT')
     + Optional((kw('DISTINCT') | kw('UNIQUE')) | kw('ALL'))
     + (Literal('*') | sepmul(select_item, ','))
@@ -1345,12 +1389,14 @@ cursor_for_loop_statement = (
 '''using_clause =
 USING [ IN | OUT | IN OUT ] bind_argument
   [ [,] [ [ IN | OUT | IN OUT ] bind_argument ]...'''
-using_clause = (kw('USING')
-                + sepmul(Optional(kw('IN') | kw('OUT') | kw('IN OUT')) + name, ','))
+using_clause = (
+    kw('USING') + sepmul(Optional(kw('IN') | kw('OUT') | kw('IN OUT'))
+                         + name, ','))
 
 '''dynamic_returning_clause =
 { RETURNING | RETURN } { into_clause | bulk_collect_into_clause }'''
-dynamic_returning_clause = (kw('returning') | kw('return')) + (into_clause | bulk_collect_into_clause)
+dynamic_returning_clause = ((kw('returning') | kw('return'))
+                            + (into_clause | bulk_collect_into_clause))
 
 '''execute_immediate_statement =
 EXECUTE IMMEDIATE dynamic_sql_stmt
@@ -1374,15 +1420,18 @@ open_for_statement = (
 
 '''basic_body =
 BEGIN statement [ statement | inline_pragma ]...
-  [ EXCEPTION exception_handler [ exception_handler ]... ] END [ name ]  EOS;'''
+  [ EXCEPTION exception_handler [ exception_handler ]... ]
+END [ name ]  EOS;'''
 basic_body = (
     kw('begin') + statement + ZeroOrMore(statement | inline_pragma)
     + Optional(kw('exception') + OneOrMore(exception_handler))
     + kw('end') + Optional(name) + EOS)
 
 autonomous_transaction_pragma = kw('PRAGMA autonomous_transaction') + EOS
-exception_init_pragma = kw('PRAGMA exception_init') + '(' + name + ',' + Optional('-') + nums + ')' + EOS
-inline_pragma = kw('PRAGMA inline') + '(' + name + ',' + (kw("'YES'") | kw("'NO'")) + ')' + EOS
+exception_init_pragma = (kw('PRAGMA exception_init') + '(' + name + ','
+                         + Optional('-') + nums + ')' + EOS)
+inline_pragma = (kw('PRAGMA inline') + '(' + name + ','
+                 + (kw("'YES'") | kw("'NO'")) + ')' + EOS)
 restrict_references_pragma = (
     kw('PRAGMA restrict_references')
     + '(' + (name | kw('DEFAULT')) + ','
@@ -1407,15 +1456,21 @@ pragma = (
 
 '''constant_declaration =
 constant CONSTANT datatype [NOT NULL] { := | DEFAULT } expression ;'''
-constant_declaration = name + kw('constant') + datatype + Optional(kw('not null')) + (':=' | kw('default')) + expression + EOS
+constant_declaration = (name + kw('constant') + datatype
+                        + Optional(kw('not null'))
+                        + (':=' | kw('default')) + expression + EOS)
 
 '''field_definition =
 field datatype [ [ NOT NULL ] { := | DEFAULT } expression ]'''
-field_definition = name + datatype + Optional(Optional(kw('not null')) + (':=' | kw('default')) + expression)
+field_definition = (name + datatype
+                    + Optional(Optional(kw('not null'))
+                               + (':=' | kw('default')) + expression))
 
 '''record_variable_declaration =
 TYPE record_type IS RECORD  ( field_definition [, field_definition]... ) ;'''
-record_variable_declaration = kw('TYPE') + name + kw('is record') + '(' + sepmul(field_definition, ',') + EOS
+record_variable_declaration = (
+    kw('TYPE') + name + kw('is record')
+    + '(' + sepmul(field_definition, ',') + EOS)
 
 '''item_declaration =
 { collection_variable_dec
@@ -1445,16 +1500,22 @@ character_set = name
 '''subtype_definition =
 SUBTYPE subtype IS base_type [ constraint | CHARACTER SET character_set ]
   [ NOT NULL ];'''
-subtype_definition = kw('subtype') + name + kw('is') + name + Optional(constraint | (kw('character set') + character_set))
+subtype_definition = (kw('subtype') + name + kw('is') + name
+                      + Optional(constraint
+                                 | (kw('character set') + character_set)))
 
 '''collection_type_definiton = TYPE type IS
    { assoc_array_type_def
    | varray_type_def
    | nested_table_type_def
    } ;'''
-collection_type_definition = kw('type') + name + kw('is') + (assoc_array_type_def | varray_type_def | nested_table_type_def)
+collection_type_definition = (
+    kw('type') + name + kw('is')
+    + (assoc_array_type_def | varray_type_def | nested_table_type_def))
 
-record_type_definition = kw('type') + name + kw('is record') + '(' + sepmul(name + datatype, ',') + ')' + EOS
+record_type_definition = (
+    kw('type') + name + kw('is record')
+    + '(' + sepmul(name + datatype, ',') + ')' + EOS)
 '''type_definition =
 { collection_type_definition
 | record_type_definition
@@ -1542,7 +1603,10 @@ declare_section = (item_list_1 + Optional(item_list_2)) | item_list_2
 '''function_heading =
 FUNCTION function [ ( parameter_declaration [, parameter_declaration ] ) ]
   RETURN datatype;'''
-function_heading = KW('FUNCTION') + name + Optional('(' + sepmul(parameter_declaration, ',') + ')') + KW('RETURN') + datatype
+function_heading = (
+    KW('FUNCTION') + name
+    + Optional('(' + sepmul(parameter_declaration, ',') + ')')
+    + KW('RETURN') + datatype)
 
 '''body =
 BEGIN statement [ statement | inline_pragma ]...
@@ -1605,11 +1669,11 @@ function_heading [ DETERMINISTIC
                  | RESULT_CACHE [ relies_on_clause ]
                  ]...
   { IS | AS } { [ declare_section ] body | call_spec | EXTERNAL };'''
-function_definition << function_heading + ZeroOrMore(
-    KW('DETERMINISTIC')
-  | KW('PIPELINED') | KW('PARALLEL_ENABLE')
-  | (KW('RESULT_CACHE') + Optional(relies_on_clause))) + isas + ((Optional(declare_section) + body)
-            | call_spec | KW('EXTERNAL'))
+function_definition << (
+    function_heading
+    + ZeroOrMore(KW('DETERMINISTIC') | KW('PIPELINED') | KW('PARALLEL_ENABLE')
+                 | (KW('RESULT_CACHE') + Optional(relies_on_clause))) + isas
+    + ((Optional(declare_section) + body) | call_spec | KW('EXTERNAL')))
 
 '''function_declaration =
 function_heading
@@ -1628,7 +1692,8 @@ procedure_definition << procedure_heading + isas + (
 
 '''plsql_block =
 [ "<<" label ">>" ]... [ DECLARE declare_section ] body;'''
-plsql_block = ZeroOrMore('<<' + name + '>>') + Optional(kw('DECLARE') + declare_section) + body
+plsql_block = (ZeroOrMore('<<' + name + '>>')
+               + Optional(kw('DECLARE') + declare_section) + body)
 
 '''initialize_section =
 BEGIN statement [ statement | pragma ]...
@@ -1701,23 +1766,30 @@ statement << ZeroOrMore("<<" + name + ">>") + (
 '''exception_handler =
 WHEN { exception [ OR exception ]... | OTHERS }
   THEN statement [ statement ]...;'''
-exception_handler = KW('WHEN') + (name + ZeroOrMore(Optional(KW('OR') + name)) | KW('OTHERS')) + KW('THEN') + statement
+exception_handler = (
+    KW('WHEN') + (name + ZeroOrMore(Optional(KW('OR') + name)) | KW('OTHERS'))
+    + KW('THEN') + statement)
 
 '''initialize_section =
 BEGIN statement [ statement | pragma ]...
   [ EXCEPTION exception_handler [ exception_handler ]... ];'''
-initialize_section = KW('BEGIN') + statement + ZeroOrMore(statement | pragma) + Optional(KW('EXCEPTION') + OneOrMore(exception_handler))
+initialize_section = (
+    KW('BEGIN') + statement + ZeroOrMore(statement | pragma)
+    + Optional(KW('EXCEPTION') + OneOrMore(exception_handler)))
 
 '''invoker_rights_clause =
 AUTHID { CURRENT_USER | DEFINER };'''
-invoker_rights_clause = KW('AUTHID') + (KW('CURRENT_USER') | KW('DEFINER')) + EOS
+invoker_rights_clause = (KW('AUTHID') + (KW('CURRENT_USER') | KW('DEFINER'))
+                         + EOS)
 '''create_package =
 CREATE [ OR REPLACE ] PACKAGE [ schema. ] package_name
    [ invoker_rights_clause ]
    { IS | AS } declare_section END [ package_name ]  EOS;
    '''
-create_package = (KW('CREATE') + Optional(kw('OR REPLACE'))
-    + KW('PACKAGE') + Optional(name + '.') + name + invoker_rights_clause + isas
+create_package = (
+    KW('CREATE') + Optional(kw('OR REPLACE'))
+    + KW('PACKAGE') + Optional(name + '.') + name + invoker_rights_clause
+    + isas
     + declare_section + KW('END') + EOS)
 
 '''
