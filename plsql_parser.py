@@ -1830,6 +1830,13 @@ if '__main__' == __name__:
     #assert validate()
     validate()
     import sys
+    if len(sys.argv) not in (2, 3) or sys.argv[1] not in parser_elements:
+        print '''Usage: %s <parser_element_name> [input file]
+where parser_element_name can be one of''' % sys.argv[0]
+        for nm in sorted(parser_elements.iterkeys()):
+            print '  ', nm
+        print '\n', 'You may try "statement"'
+        sys.exit(1)
     inp = open(sys.argv[2], 'rb') if len(sys.argv) > 2 else sys.stdin
     for elt in parser_elements[sys.argv[1]].scanString(inp.read()):
         print elt
