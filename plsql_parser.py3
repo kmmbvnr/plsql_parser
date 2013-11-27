@@ -17,7 +17,7 @@ def KW(text):
 
 def kw(text):
     try:
-        return And(map(KW, text.upper().split()))
+        return And(list(map(KW, text.upper().split())))
     except AttributeError:
         LOG.exception('kw(%r)', text)
         raise
@@ -1810,7 +1810,7 @@ line_comment = '--' + restOfLine
 block_comment = cStyleComment
 
 parser_elements = None  # to be able to use locals().iteritems
-parser_elements = dict(tup for tup in globals().items()
+parser_elements = dict(tup for tup in list(globals().items())
                        if isinstance(tup[1], ParserElement))
 
 
@@ -1819,12 +1819,12 @@ statement.ignore(block_comment)
 
 def validate(elements=None, all=False):
     ok = True
-    for k, x in sorted(elements or parser_elements.iteritems(),
+    for k, x in sorted(elements or iter(parser_elements.items()),
                        key=lambda tup: len(str(tup[1]))):
         try:
             x.validate()
         except RecursiveGrammarException:
-            LOG.error(k + u' is \u221e recursive!')
+            LOG.error(k + ' is \u221e recursive!')
             ok = False
             if not all:
                 break
@@ -1838,15 +1838,15 @@ if '__main__' == __name__:
     validate()
     import sys
     if len(sys.argv) not in (2, 3):
-        print '''Usage: %s <parser_element_name> [input file]''' % sys.argv[0]
+        print('''Usage: %s <parser_element_name> [input file]''' % sys.argv[0])
         sys.exit(1)
     if sys.argv[1] not in parser_elements:
-        print '''Usage: %s <parser_element_name> [input file]
-where parser_element_name can be one of''' % sys.argv[0]
-        for nm in sorted(parser_elements.iterkeys()):
-            print '  ', nm
-        print '\n', 'You may try "statement"'
+        print('''Usage: %s <parser_element_name> [input file]
+where parser_element_name can be one of''' % sys.argv[0])
+        for nm in sorted(parser_elements.keys()):
+            print('  ', nm)
+        print('\n', 'You may try "statement"')
         sys.exit(1)
     inp = open(sys.argv[2], 'rb') if len(sys.argv) > 2 else sys.stdin
     for elt in parser_elements[sys.argv[1]].scanString(inp.read()):
-        print elt
+        print(elt)
